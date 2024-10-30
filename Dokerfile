@@ -1,0 +1,78 @@
+# TiddlyWiki Docker Image - Secure Configuration
+#
+# This Dockerfile builds an optimized TiddlyWiki container, implementing security
+# best practices for sensitive data and minimalistic setup.
+
+# --- Build Stage: Using an official Node.js image for compatibility ---
+ARG NODE_IMAGE=node:current-alpine3.20
+FROM ${NODE_IMAGE} AS builder
+
+# Metadata
+LABEL maintainer="coding@sdev.ch" \
+      description="Secure and lightweight Docker image for TiddlyWiki" \
+      version="5.3.5" \
+      org.opencontainers.image.authors="coding@sdev.ch" \
+      org.opencontainers.image.url="https://tiddlywiki.com"
+
+# Essential build arguments
+ARG WIKI_VER=5.3.5
+ARG USER_NAME=node
+
+# Environment configuration for production
+ENV NODE_ENV=production
+
+# Install necessary packages and configure Node environment for secure, reduced footprint
+RUN apk add --no-cache libcap binutils && \
+    setcap 'cap_net_bind_service=+ep' /usr/local/bin/node && \
+    strip /usr/local/bin/node && \
+    apk del libcap binutils libc-utils musl-utils scanelf apk-tools && \
+    rm -rf /lib/apk /var/cache/apk /etc/apk /usr/share/apk && \
+    find /root/ /home/node/ -mindepth 1 -delete && \
+    mkdir -p /wiki && \
+    chown -R ${USER_NAME}:${USER_NAME} /wiki && \
+    npm install -g tiddlywiki@${WIKI_VER} && \
+    find /usr/local/include/node/openssl/archs -type d -mindepth 1 -maxdepth 1 | grep -vi "/$(uname -s)-$(uname -m)$" | xargs rm -Rf && \
+    rm -rf /usr/local/lib/node_modules/npm && \
+    rm -f /usr/local/bin/npm /usr/local/bin/npx && \
+    rm -rf /tmp/*
+
+# Copy initialization script and set permissions
+COPY --chmod=0555 --chown=root:root tiddlywiki-init /usr/local/bin/tiddlywiki-init
+
+# --- Final Stage: Creating a minimal image for running TiddlyWiki ---
+FROM scratch
+
+# Environment and runtime variables
+ARG WIKI_VER=5.3.5
+ARG USER_NAME=node
+
+# Copy files from builder stage
+COPY --from=builder / /
+
+# Default environment variables - configure at runtime for sensitive information
+ENV WIKI_NAME="wiki" \
+    PORT=8080 \
+    ROOT_TIDDLER="$:/core/save/all" \
+    RENDER_TYPE="text/plain" \
+    SERVE_TYPE="text/html" \
+    HOST="0.0.0.0" \
+    PATH_PREFIX="" \
+    NODE_ENV=production
+
+# Avoid setting sensitive variables directly; set during `docker run`
+# Example usage:
+# docker run -d -p 8080:8080 -e USERNAME="your_user" -e PASSWORD="your_password" \
+#            -v /path/to/local/wiki:/wiki my_tiddlywiki_image
+
+# Expose the TiddlyWiki port
+EXPOSE ${PORT}/tcp
+
+# Volume for persistent storage
+VOLUME /wiki
+WORKDIR /wiki
+
+# Run as non-root user
+USER ${USER_NAME}
+
+# Entry point for initialization and startup
+CMD ["/bin/sh", "/usr/local/bin/tiddlywiki-init"]

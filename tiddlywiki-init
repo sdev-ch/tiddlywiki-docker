@@ -1,0 +1,41 @@
+#!/bin/sh
+# tiddlywiki-init
+# Initializes and launches TiddlyWiki with runtime options, optimizing security for sensitive data
+
+set -eu
+
+initialize_wiki() {
+  TIDDLYWIKI_CMD=$(command -v tiddlywiki)
+
+  # Check if username and password are set at runtime
+  if [ -z "${USERNAME:-}" ] || [ -z "${PASSWORD:-}" ]; then
+    echo "Error: USERNAME and PASSWORD environment variables must be set at runtime."
+    exit 1
+  fi
+
+  # Configure Node.js memory if NODE_MEM is set
+  if [ -n "${NODE_MEM:-}" ]; then
+    export NODE_OPTIONS="--max_old_space_size=$((NODE_MEM * 4 / 5)) ${NODE_OPTIONS:-}"
+  fi
+
+  # Initialize the wiki instance if it doesn't exist
+  WIKI_DIR="/wiki/${WIKI_NAME}"
+  if [ ! -d "$WIKI_DIR" ]; then
+    echo "Creating new TiddlyWiki instance: $WIKI_NAME at $WIKI_DIR"
+    node "$TIDDLYWIKI_CMD" "$WIKI_NAME" --init server
+  fi
+
+  # Start TiddlyWiki with runtime-configurable parameters for security
+  echo "Launching TiddlyWiki on port ${PORT}..."
+  exec node ${NODE_OPTIONS:-} "$TIDDLYWIKI_CMD" "$WIKI_NAME" --server \
+    "$PORT" \
+    "$ROOT_TIDDLER" \
+    "$RENDER_TYPE" \
+    "$SERVE_TYPE" \
+    "$USERNAME" \
+    "$PASSWORD" \
+    "$HOST" \
+    "$PATH_PREFIX"
+}
+
+initialize_wiki "$@"
